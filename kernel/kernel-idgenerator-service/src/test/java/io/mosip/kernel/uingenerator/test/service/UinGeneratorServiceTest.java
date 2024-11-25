@@ -57,14 +57,14 @@ public class UinGeneratorServiceTest {
 	@Test(expected = UinNotFoundException.class)
 	public void getUinNotFoundTest() {
 
-		Mockito.when(uinRepository.findFirstByStatus("UNUSED")).thenReturn(null);
+		Mockito.when(uinRepository.findMultipleByStatusForUpdate("UNUSED", 1).get(0)).thenReturn(null);
 		uinGeneratorServiceImpl.getUin(null);
 	}
 
 	@Test
 	public void getUinTest() {
 		UinEntity entity = new UinEntity("9723157067", "ISSUED");
-		Mockito.when(uinRepository.findFirstByStatus("UNUSED")).thenReturn(entity);
+		Mockito.when(uinRepository.findMultipleByStatusForUpdate("UNUSED", 1).get(0)).thenReturn(entity);
 		Mockito.when(uinRepository.save(Mockito.any())).thenReturn(entity);
 		Mockito.when(authHandler.getContextUser(routingContext)).thenReturn(TEST_USER);
 		uinGeneratorServiceImpl.getUin(routingContext);

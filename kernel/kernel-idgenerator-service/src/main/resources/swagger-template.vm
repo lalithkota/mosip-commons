@@ -26,7 +26,7 @@
 				],
 				"summary": "Generate UIN",
 				"description": "",
-				"operationId": "$servletpath/uin",
+				"operationId": "get:$servletpath/uin",
 				"parameters": [],
 				"responses": {
 					"200": {
@@ -71,7 +71,7 @@
 				],
 				"summary": "Update an UIN status",
 				"description": "Update UIN Status",
-				"operationId": "$servletpath/uin",
+				"operationId": "put:$servletpath/uin",
 				"parameters": [],
 				"requestBody": {
 					"description": "JSON object of product",
@@ -104,6 +104,123 @@
 				"responses": {
 					"200": {
 						"description": "UIN Updated."
+					},
+					"500": {
+						"description": "Internal Server Error."
+					}
+				},
+				"deprecated": false
+			}
+		},
+		"$servletpath/uin/bulk": {
+			"post": {
+				"tags": [
+					"Generate multiple UINs"
+				],
+				"summary": "Generate multiple UINs",
+				"description": "",
+				"operationId": "post:$servletpath/uin/bulk",
+				"parameters": [],
+				"requestBody": {
+					"description": "JSON object of Bulk UIN Request",
+					"content": {
+						"application/json": {
+							"schema": {
+								"title": "",
+								"required": [],
+								"type": "",
+								"properties": {},
+								"example": {
+									"id": "string",
+									"metadata": {},
+									"request": {
+										"count": 2
+									},
+									"requesttime": "2019-04-22T12:12:12.121Z",
+									"version": "string"
+								}
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "",
+									"properties": {},
+									"example": {
+										"errors": [
+											{
+												"errorCode": "string",
+												"message": "string"
+											}
+										],
+										"id": "string",
+										"metadata": {},
+										"response": {
+											"uins": [
+												"72638402372",
+												"18637191092"
+											]
+										},
+										"responsetime": "2019-04-22T12:12:12.121Z",
+										"version": "string"
+									}
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error."
+					}
+				},
+				"deprecated": false
+			},
+			"put": {
+				"tags": [
+					"Multiple UINs Status Update"
+				],
+				"summary": "Update multiple UINs status",
+				"description": "Update multiple UINs Status",
+				"operationId": "put:$servletpath/uin/bulk",
+				"parameters": [],
+				"requestBody": {
+					"description": "JSON object of Bulk update Request",
+					"content": {
+						"application/json": {
+							"schema": {
+								"title": "",
+								"required": [],
+								"type": "",
+								"properties": {},
+								"example": {
+									"id": "string",
+									"metadata": {},
+									"request": {
+										"uins": [
+											"72638402372",
+											"18637191092"
+										],
+										"status": "ASSIGNED"
+									},
+									"requesttime": "2019-04-22T12:12:12.121Z",
+									"version": "string"
+								}
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"description": "UIN Updated."
+					},
+					"400": {
+						"description": "Invalid status."
 					},
 					"500": {
 						"description": "Internal Server Error."
@@ -199,24 +316,63 @@
 		"schemas": {
 			"UinResponseDto": {
 				"title": "UinResponseDto",
-				"required": [],
+				"required": ["uin"],
 				"type": "object",
 				"properties": {
 					"uin": {
-						"type": "String"
+						"type": "string"
 					}
 				}
 			},
 			"UinStatusUpdateReponseDto": {
 				"title": "UinStatusUpdateReponseDto",
-				"required": [],
+				"required": ["uin","status"],
 				"type": "object",
 				"properties": {
 					"uin": {
-						"type": "String"
+						"type": "string"
 					},
 					"status": {
-						"type": "String"
+						"type": "string"
+					}
+				}
+			},
+			"GetBulkUinsRequestDto": {
+				"title": "GetBulkUinsRequestDto",
+				"required": ["count"],
+				"type": "object",
+				"properties": {
+					"count": {
+						"type": "integer"
+					}
+				}
+			},
+			"GetBulkUinsResponseDto": {
+				"title": "GetBulkUinsResponseDto",
+				"required": ["uins"],
+				"type": "object",
+				"properties": {
+					"uins": {
+						"type": "string",
+						"items": {
+							"type": "string"
+						}
+					}
+				}
+			},
+			"UpdateBulkUinsStatusResponseDto": {
+				"title": "UpdateBulkUinsStatusResponseDto",
+				"required": ["uins","status"],
+				"type": "object",
+				"properties": {
+					"uins": {
+						"type": "string",
+						"items": {
+							"type": "string"
+						}
+					},
+					"status": {
+						"type": "string"
 					}
 				}
 			}

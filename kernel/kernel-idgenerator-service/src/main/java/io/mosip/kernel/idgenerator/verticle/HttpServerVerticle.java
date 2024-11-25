@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.mosip.kernel.idgenerator.config.UinServiceHealthCheckerhandler;
 import io.mosip.kernel.idgenerator.config.UinServiceRouter;
-import io.mosip.kernel.uingenerator.constant.UINHealthConstants;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorConstant;
 import io.mosip.kernel.vidgenerator.constant.EventType;
 import io.mosip.kernel.vidgenerator.constant.VIDGeneratorConstant;
@@ -63,20 +62,19 @@ public class HttpServerVerticle extends AbstractVerticle {
 
 		// Parent router so that global options can be applied to it in future
 		Router parentRouter = Router.router(vertx);
-		Router metricRouter = Router.router(vertx);
 		// giving the root to parent router
 		parentRouter.route().consumes(VIDGeneratorConstant.APPLICATION_JSON)
 				.produces(VIDGeneratorConstant.APPLICATION_JSON);
-		Router healthCheckRouter = Router.router(vertx);
-		UinServiceHealthCheckerhandler healthCheckHandler = new UinServiceHealthCheckerhandler(vertx, null,
-				new ObjectMapper(), environment);
-		healthCheckRouter.get(UinGeneratorConstant.HEALTH_ENDPOINT)
-				.handler(healthCheckHandler);
+
+		UinServiceHealthCheckerhandler healthCheckHandler = new UinServiceHealthCheckerhandler(vertx, null, new ObjectMapper(), environment);
 		healthCheckHandler.register("db", healthCheckHandler::databaseHealthChecker);
 		healthCheckHandler.register("diskspace", healthCheckHandler::dispSpaceHealthChecker);
 		healthCheckHandler.register("idgenerator", f -> healthCheckHandler.verticleHealthHandler(f, vertx));
 
-		metricRouter.route("/metrics").handler(PrometheusScrapingHandler.create());
+		Router healthCheckRouter = Router.router(vertx);
+		healthCheckRouter.get().handler(healthCheckHandler);
+		Router metricRouter = Router.router(vertx);
+		metricRouter.route().handler(PrometheusScrapingHandler.create());
 
 		// mount all the routers to parent router
 		parentRouter.mountSubRouter(
@@ -85,8 +83,8 @@ public class HttpServerVerticle extends AbstractVerticle {
 		parentRouter.mountSubRouter(
 				environment.getProperty(VIDGeneratorConstant.SERVER_SERVLET_PATH) + UinGeneratorConstant.VUIN,
 				uinServiceRouter.createRouter(vertx));
-		parentRouter.mountSubRouter(environment.getProperty(VIDGeneratorConstant.SERVER_SERVLET_PATH), healthCheckRouter);
-		parentRouter.mountSubRouter(environment.getProperty(VIDGeneratorConstant.SERVER_SERVLET_PATH), metricRouter);
+		parentRouter.mountSubRouter(environment.getProperty(VIDGeneratorConstant.SERVER_SERVLET_PATH) + UinGeneratorConstant.HEALTH_ENDPOINT, healthCheckRouter);
+		parentRouter.mountSubRouter(environment.getProperty(VIDGeneratorConstant.SERVER_SERVLET_PATH) + "/metrics", metricRouter);
 
 		httpServer.requestHandler(parentRouter);
 		httpServer.listen(Integer.parseInt(environment.getProperty(VIDGeneratorConstant.SERVER_PORT)), result -> {

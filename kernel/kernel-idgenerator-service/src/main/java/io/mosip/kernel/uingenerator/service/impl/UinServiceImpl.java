@@ -3,13 +3,14 @@
  */
 package io.mosip.kernel.uingenerator.service.impl;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.modelmapper.ModelMapper;
 import org.modelmapper.TypeToken;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,8 +18,10 @@ import io.mosip.kernel.core.authmanager.authadapter.spi.VertxAuthenticationProvi
 import io.mosip.kernel.core.util.DateUtils;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorConstant;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorErrorCode;
+import io.mosip.kernel.uingenerator.dto.GetBulkUinsResponseDto;
 import io.mosip.kernel.uingenerator.dto.UinResponseDto;
 import io.mosip.kernel.uingenerator.dto.UinStatusUpdateReponseDto;
+import io.mosip.kernel.uingenerator.dto.UpdateBulkUinsStatusResponseDto;
 import io.mosip.kernel.uingenerator.entity.UinEntity;
 import io.mosip.kernel.uingenerator.entity.UinEntityAssigned;
 import io.mosip.kernel.uingenerator.exception.UinNotFoundException;
@@ -74,10 +77,13 @@ public class UinServiceImpl implements UinService {
 	@Override
 	public UinResponseDto getUin(RoutingContext routingContext) {
 		UinResponseDto uinResponseDto = new UinResponseDto();
-		UinEntity uinBean = uinRepository.findFirstByStatus(UinGeneratorConstant.UNUSED);
+		UinEntity uinBean = uinRepository.findMultipleByStatusForUpdate(UinGeneratorConstant.UNUSED, 1).get(0);
 		if (uinBean != null) {
-			uinRepository.updateStatus(UinGeneratorConstant.ISSUED, authHandler.getContextUser(routingContext),
-					DateUtils.getUTCCurrentDateTime(), uinBean.getUin());
+			uinRepository.updateStatus(UinGeneratorConstant.ISSUED,
+				authHandler.getContextUser(routingContext),
+				DateUtils.getUTCCurrentDateTime(),
+				UinGeneratorConstant.UNUSED,
+				Collections.singleton(uinBean.getUin()));
 			uinResponseDto.setUin(uinBean.getUin());
 		} else {
 			throw new UinNotFoundException(UinGeneratorErrorCode.UIN_NOT_FOUND.getErrorCode(),
@@ -85,8 +91,6 @@ public class UinServiceImpl implements UinService {
 		}
 		return uinResponseDto;
 	}
-
-	
 
 	/*
 	 * (non-Javadoc)
@@ -122,6 +126,54 @@ public class UinServiceImpl implements UinService {
 		}
 		uinResponseDto.setUin(existingUin.getUin());
 		uinResponseDto.setStatus(existingUin.getStatus());
+		return uinResponseDto;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 *
+	 * @see io.mosip.kernel.core.uingenerator.service.UinGeneratorService#getUinsInBulk()
+	 */
+	@Transactional
+	@Override
+	public GetBulkUinsResponseDto getUinsInBulk(RoutingContext routingContext, int count) {
+		GetBulkUinsResponseDto uinResponseDto = new GetBulkUinsResponseDto();
+		List<UinEntity> uinEntities = uinRepository.findMultipleByStatusForUpdate(UinGeneratorConstant.UNUSED, count);
+		List<String> uins = uinEntities.stream().map(val->val.getUin()).collect(Collectors.toList());
+		if (uins != null && !uins.isEmpty()) {
+			uinRepository.updateStatus(
+				UinGeneratorConstant.ISSUED,
+				authHandler.getContextUser(routingContext),
+				DateUtils.getUTCCurrentDateTime(),
+				UinGeneratorConstant.UNUSED,
+				uins);
+			uinResponseDto.setUins(uins);
+		} else {
+			throw new UinNotFoundException(UinGeneratorErrorCode.UIN_NOT_FOUND.getErrorCode(),
+					UinGeneratorErrorCode.UIN_NOT_FOUND.getErrorMessage());
+		}
+		return uinResponseDto;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 *
+	 * @see
+	 * io.mosip.kernel.uingenerator.service.UinGeneratorService#updateUinsStatusInBulk(io.
+	 * vertx.core.json.JsonObject)
+	 */
+	@Override
+	public UpdateBulkUinsStatusResponseDto updateUinsStatusInBulk(UpdateBulkUinsStatusResponseDto uinsStatus, RoutingContext routingContext) {
+		// TODO: TBD functionality of this method.
+		List<UinEntity> updatedUinEntities = uinRepository.updateStatus(
+			uinsStatus.getStatus(),
+			authHandler.getContextUser(routingContext),
+			DateUtils.getUTCCurrentDateTime(),
+			UinGeneratorConstant.ISSUED,
+			uinsStatus.getUins());
+		UpdateBulkUinsStatusResponseDto uinResponseDto = new UpdateBulkUinsStatusResponseDto();
+		uinResponseDto.setUins(updatedUinEntities.stream().map(val->val.getUin()).collect(Collectors.toList()));
+		uinResponseDto.setStatus(UinGeneratorConstant.ASSIGNED);
 		return uinResponseDto;
 	}
 

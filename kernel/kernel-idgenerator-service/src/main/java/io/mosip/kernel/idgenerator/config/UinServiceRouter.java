@@ -3,8 +3,10 @@ package io.mosip.kernel.idgenerator.config;
 import static io.vertx.core.http.HttpHeaders.CONTENT_TYPE;
 
 import java.io.IOException;
+import java.time.OffsetDateTime;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -23,11 +25,13 @@ import io.mosip.kernel.core.signatureutil.exception.SignatureUtilClientException
 import io.mosip.kernel.core.signatureutil.exception.SignatureUtilException;
 import io.mosip.kernel.core.signatureutil.model.SignatureResponse;
 import io.mosip.kernel.core.signatureutil.spi.SignatureUtil;
-import io.mosip.kernel.core.util.DateUtils;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorConstant;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorErrorCode;
+import io.mosip.kernel.uingenerator.dto.GetBulkUinsRequestDto;
+import io.mosip.kernel.uingenerator.dto.GetBulkUinsResponseDto;
 import io.mosip.kernel.uingenerator.dto.UinResponseDto;
 import io.mosip.kernel.uingenerator.dto.UinStatusUpdateReponseDto;
+import io.mosip.kernel.uingenerator.dto.UpdateBulkUinsStatusResponseDto;
 import io.mosip.kernel.uingenerator.entity.UinEntity;
 import io.mosip.kernel.uingenerator.exception.UinNotFoundException;
 import io.mosip.kernel.uingenerator.exception.UinNotIssuedException;
@@ -80,6 +84,30 @@ public class UinServiceRouter {
 
 	private Logger LOGGER = LoggerFactory.getLogger(UinServiceRouter.class);
 
+	@Value("${"+ UinGeneratorConstant.GET_EXECUTOR_POOL_ENABLE + ":400}")
+	private int workerExecutorPool;
+
+	@Value("${"+ UinGeneratorConstant.SIGNING_ENABLE + ":false}")
+	private boolean isSignEnable;
+
+	@Value("${mosip.kernel.uin.bulk.enabled:true}")
+	private boolean isBulkEnabled;
+
+	@Value("${mosip.kernel.uin.auth.get-uin.enabled:${mosip.kernel.uin.auth.enabled:true}}")
+	private boolean isGetUinAuthEnabled;
+
+	@Value("${mosip.kernel.uin.auth.put-uin.enabled:${mosip.kernel.uin.auth.enabled:true}}")
+	private boolean isPutUinAuthEnabled;
+
+	@Value("${mosip.kernel.uin.auth.get-bulk-uins.enabled:${mosip.kernel.uin.auth.enabled:true}}")
+	private boolean isGetBulkUinsAuthEnabled;
+
+	@Value("${mosip.kernel.uin.auth.put-bulk-uins.enabled:${mosip.kernel.uin.auth.enabled:true}}")
+	private boolean isPutBulkUinsAuthEnabled;
+
+	@Value("${mosip.kernel.uin.min-unused-threshold}")
+	private long thresholdUinCount;
+
 	/**
 	 * Creates router for vertx server
 	 * 
@@ -89,53 +117,49 @@ public class UinServiceRouter {
 	public Router createRouter(Vertx vertx) {
 		Router router = Router.router(vertx);
 
-		final int workerExecutorPool = environment.getProperty(UinGeneratorConstant.GET_EXECUTOR_POOL_ENABLE,
-				Integer.class, 400);
 		LOGGER.info("worker executor pool {}", workerExecutorPool);
-		final String servletPath = environment.getProperty(UinGeneratorConstant.SERVER_SERVLET_PATH);
-		String profile = environment.getProperty(UinGeneratorConstant.SPRING_PROFILES_ACTIVE);
-		boolean isSignEnable = environment.getProperty(UinGeneratorConstant.SIGNING_ENABLE, boolean.class, false);
+
 		router.route().handler(routingContext -> {
 			routingContext.response().headers().add(CONTENT_TYPE, UinGeneratorConstant.APPLICATION_JSON);
 			routingContext.next();
 		});
-		authHandler.addAuthFilter(router, "/", HttpMethod.GET, "ID_REPOSITORY");
-		router.get().handler(routingContext -> {
-			getRouter(vertx, routingContext, isSignEnable, profile, router, workerExecutorPool);
-		});
-		authHandler.addAuthFilter(router, "/", HttpMethod.PUT, "ID_REPOSITORY");
+
+		if (isGetUinAuthEnabled){
+			authHandler.addAuthFilter(router, "/", HttpMethod.GET, "ID_REPOSITORY");
+		}
+		router.get("/").handler(this::getRouter);
+		if (isPutUinAuthEnabled){
+			authHandler.addAuthFilter(router, "/", HttpMethod.PUT, "ID_REPOSITORY");
+		}
 		router.route().handler(BodyHandler.create());
-		router.put().consumes(UinGeneratorConstant.APPLICATION_JSON).handler(this::updateRouter);
+		router.put("/").consumes(UinGeneratorConstant.APPLICATION_JSON).handler(this::updateRouter);
 
-		configureHealthCheckEndpoint(vertx, router, servletPath);
+		if(isBulkEnabled){
+			if (isGetBulkUinsAuthEnabled){
+				authHandler.addAuthFilter(router, "/bulk", HttpMethod.POST, "ID_REPOSITORY");
+			}
+			router.post("/bulk").handler(this::getBulkHandler);
+			if (isPutBulkUinsAuthEnabled){
+				authHandler.addAuthFilter(router, "/bulk", HttpMethod.PUT, "ID_REPOSITORY");
+			}
+			router.put("/bulk").consumes(UinGeneratorConstant.APPLICATION_JSON).handler(this::updateBulkHandler);
+		}
 
-		router.route(environment.getProperty(UinGeneratorConstant.SERVER_SERVLET_PATH) + "/*").handler(
+		router.route("/" + UinGeneratorConstant.SWAGGER_UI_PATH + "/*").handler(
 				StaticHandler.create().setCachingEnabled(false).setWebRoot(UinGeneratorConstant.SWAGGER_UI_PATH)
 						.setAlwaysAsyncFS(true).setAllowRootFileSystemAccess(true));
 		return router;
 	}
 
-	private void configureHealthCheckEndpoint(Vertx vertx, Router router, final String servletPath) {
-		UinServiceHealthCheckerhandler healthCheckHandler = new UinServiceHealthCheckerhandler(vertx, null,
-				objectMapper, environment);
-		router.get(servletPath + UinGeneratorConstant.HEALTH_ENDPOINT).handler(healthCheckHandler);
-		healthCheckHandler.register("db", healthCheckHandler::databaseHealthChecker);
-		healthCheckHandler.register("diskspace", healthCheckHandler::dispSpaceHealthChecker);
-		healthCheckHandler.register("uingeneratorverticle",
-				future -> healthCheckHandler.verticleHealthHandler(future, vertx));
-	}
-
-	private void getRouter(Vertx vertx, RoutingContext routingContext, boolean isSignEnable, String profile,
-			Router router, int workerExecutorPool) {
+	private void getRouter(RoutingContext routingContext) {
 		ResponseWrapper<UinResponseDto> reswrp = new ResponseWrapper<>();
-		String timestamp = DateUtils.getUTCCurrentDateTimeString();
-		WorkerExecutor executor = vertx.createSharedWorkerExecutor("get-uin", workerExecutorPool);
+		WorkerExecutor executor = routingContext.vertx().createSharedWorkerExecutor("get-uin", workerExecutorPool);
 		executor.executeBlocking(blockingCodeHandler -> {
 			try {
-				checkAndGenerateUins(vertx);
+				checkAndGenerateUins(routingContext.vertx());
 				UinResponseDto uin = new UinResponseDto();
 				uin = uinGeneratorService.getUin(routingContext);
-				reswrp.setResponsetime(DateUtils.convertUTCToLocalDateTime(timestamp));
+				reswrp.setResponsetime(OffsetDateTime.now().toLocalDateTime());
 				reswrp.setResponse(uin);
 				reswrp.setErrors(null);
 				blockingCodeHandler.complete();
@@ -152,27 +176,7 @@ public class UinServiceRouter {
 		}, false, resultHandler -> {
 			if (resultHandler.succeeded()) {
 				if (isSignEnable) {
-					String signedData = null;
-					String resWrpJsonString = null;
-					SignatureResponse cryptoManagerResponseDto = null;
-					try {
-						resWrpJsonString = objectMapper.writeValueAsString(reswrp);
-						cryptoManagerResponseDto = signatureUtil.sign(resWrpJsonString);
-					} catch (JsonProcessingException e) {
-
-					} catch (SignatureUtilClientException e1) {
-						ExceptionUtils.logRootCause(e1);
-						setError(routingContext, e1.getList().get(0));
-						return;
-					} catch (SignatureUtilException e1) {
-						ExceptionUtils.logRootCause(e1);
-						ServiceError error = new ServiceError(
-								UinGeneratorErrorCode.INTERNAL_SERVER_ERROR.getErrorCode(), e1.toString());
-						setError(routingContext, error);
-						return;
-					}
-					signedData = cryptoManagerResponseDto.getData();
-					routingContext.response().putHeader("response-signature", signedData);
+					signAndUpdateResponse(routingContext, reswrp);
 				}
 				try {
 					routingContext.response().putHeader("content-type", UinGeneratorConstant.APPLICATION_JSON)
@@ -196,8 +200,7 @@ public class UinServiceRouter {
 	/**
 	 * update router for update the status of the given UIN
 	 * 
-	 * @param vertx vertx
-	 * @return Router
+	 * @param RoutingContext routingContext
 	 */
 	private void updateRouter(RoutingContext routingContext) {
 		UinStatusUpdateReponseDto uinresponse = null;
@@ -251,6 +254,142 @@ public class UinServiceRouter {
 	}
 
 	/**
+	 * handler for getting uins in bulk
+	 *
+	 * @param RoutingContext routingContext
+	 */
+	private void getBulkHandler(RoutingContext routingContext) {
+		RequestWrapper<GetBulkUinsRequestDto> reqwrp;
+		int count;
+		try {
+			reqwrp = objectMapper.readValue(routingContext.getBodyAsJson().toString(),
+					new TypeReference<RequestWrapper<GetBulkUinsRequestDto>>() {
+					});
+			count = reqwrp.getRequest().getCount();
+		} catch (Exception e) {
+			ServiceError error = new ServiceError(UinGeneratorErrorCode.INTERNAL_SERVER_ERROR.getErrorCode(), e.getMessage());
+			setError(routingContext, error);
+			return;
+		}
+		if (count < 1 || count >= thresholdUinCount) {
+			ServiceError error = new ServiceError(UinGeneratorErrorCode.BULK_UIN_INVALID_COUNT.getErrorCode(),
+					UinGeneratorErrorCode.BULK_UIN_INVALID_COUNT.getErrorMessage());
+			setError(routingContext, error);
+		}
+
+		ResponseWrapper<GetBulkUinsResponseDto> reswrp = new ResponseWrapper<>();
+		WorkerExecutor executor = routingContext.vertx().createSharedWorkerExecutor("get-uin", workerExecutorPool);
+		executor.executeBlocking(blockingCodeHandler -> {
+			try {
+				checkAndGenerateUins(routingContext.vertx());
+				GetBulkUinsResponseDto uins = uinGeneratorService.getUinsInBulk(routingContext, count);
+				reswrp.setResponsetime(OffsetDateTime.now().toLocalDateTime());
+				reswrp.setResponse(uins);
+				reswrp.setErrors(null);
+				blockingCodeHandler.complete();
+			} catch (UinNotFoundException e) {
+				ServiceError error = new ServiceError(UinGeneratorErrorCode.UIN_NOT_FOUND.getErrorCode(),
+						UinGeneratorErrorCode.UIN_NOT_FOUND.getErrorMessage());
+				setError(routingContext, error, blockingCodeHandler);
+			}
+		}, false, resultHandler -> {
+			if (resultHandler.succeeded()) {
+				if (isSignEnable) {
+					signAndUpdateResponse(routingContext, reswrp);
+				}
+				try {
+					routingContext.response().putHeader("content-type", UinGeneratorConstant.APPLICATION_JSON)
+							.setStatusCode(200).end(objectMapper.writeValueAsString(reswrp));
+				} catch (JsonProcessingException e) {
+
+				}
+			} else {
+				try {
+					routingContext.response().putHeader("content-type", UinGeneratorConstant.APPLICATION_JSON)
+							.setStatusCode(200)
+							.end(objectMapper.writeValueAsString(resultHandler.cause().getMessage()));
+				} catch (JsonProcessingException e1) {
+
+				}
+			}
+		});
+
+	}
+
+	/**
+	 * handler for bulk update request
+	 *
+	 * @param RoutingContext routingContext
+	 */
+	private void updateBulkHandler(RoutingContext routingContext) {
+		UpdateBulkUinsStatusResponseDto uinsStatus;
+		RequestWrapper<UpdateBulkUinsStatusResponseDto> reqwrp;
+		try {
+			reqwrp = objectMapper.readValue(routingContext.getBodyAsJson().toString(),
+					new TypeReference<RequestWrapper<UpdateBulkUinsStatusResponseDto>>() {
+					});
+			uinsStatus = reqwrp.getRequest();
+		} catch (Exception e) {
+			ServiceError error = new ServiceError(UinGeneratorErrorCode.INTERNAL_SERVER_ERROR.getErrorCode(),
+					e.getMessage());
+			setError(routingContext, error);
+			return;
+		}
+
+		if (uinsStatus == null || uinsStatus.getUins().isEmpty()) {
+			routingContext.response().setStatusCode(200).end();
+			return;
+		}
+		if(!UinGeneratorConstant.UNUSED.equals(uinsStatus.getStatus()) && !UinGeneratorConstant.ISSUED.equals(uinsStatus.getStatus()) && !UinGeneratorConstant.ASSIGNED.equals(uinsStatus.getStatus())){
+			routingContext.response().setStatusCode(400).end();
+			return;
+		}
+
+		ResponseWrapper<UpdateBulkUinsStatusResponseDto> reswrp = new ResponseWrapper<>();
+		try {
+			reswrp.setResponse(uinGeneratorService.updateUinsStatusInBulk(uinsStatus, routingContext));
+			reswrp.setResponsetime(OffsetDateTime.now().toLocalDateTime());
+			reswrp.setErrors(null);
+			routingContext.response().putHeader("content-type", UinGeneratorConstant.APPLICATION_JSON)
+					.setStatusCode(200).end(objectMapper.writeValueAsString(reswrp));
+		} catch (JsonProcessingException e) {
+			ExceptionUtils.logRootCause(e);
+			ServiceError error = new ServiceError(UinGeneratorErrorCode.INTERNAL_SERVER_ERROR.getErrorCode(),
+					e.getMessage());
+			setError(routingContext, error, reqwrp);
+		}
+	}
+
+	/**
+	 * sign the response and return
+	 *
+	 * @param RoutingContext routingContext
+	 */
+	private void signAndUpdateResponse(RoutingContext routingContext, Object response){
+		String signedData = null;
+		String resWrpJsonString = null;
+		SignatureResponse cryptoManagerResponseDto = null;
+		try {
+			resWrpJsonString = objectMapper.writeValueAsString(response);
+			cryptoManagerResponseDto = signatureUtil.sign(resWrpJsonString);
+		} catch (JsonProcessingException e) {
+
+		} catch (SignatureUtilClientException e1) {
+			ExceptionUtils.logRootCause(e1);
+			setError(routingContext, e1.getList().get(0));
+			return;
+		} catch (SignatureUtilException e1) {
+			ExceptionUtils.logRootCause(e1);
+			ServiceError error = new ServiceError(
+					UinGeneratorErrorCode.INTERNAL_SERVER_ERROR.getErrorCode(), e1.toString());
+			setError(routingContext, error);
+			return;
+		}
+		signedData = cryptoManagerResponseDto.getData();
+		routingContext.response().putHeader("response-signature", signedData);
+	}
+
+	/**
 	 * Checks and generate uins
 	 * 
 	 * @param vertx vertx
@@ -280,7 +419,7 @@ public class UinServiceRouter {
 		}
 	}
 
-	private void setError(RoutingContext routingContext, ServiceError error, RequestWrapper<UinEntity> reqwrp) {
+	private <T> void setError(RoutingContext routingContext, ServiceError error, RequestWrapper<T> reqwrp) {
 		ResponseWrapper<ServiceError> errorResponse = new ResponseWrapper<>();
 		errorResponse.getErrors().add(error);
 		errorResponse.setId(reqwrp.getId());

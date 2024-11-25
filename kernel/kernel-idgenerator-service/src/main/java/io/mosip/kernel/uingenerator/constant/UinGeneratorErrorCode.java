@@ -24,7 +24,11 @@ public enum UinGeneratorErrorCode {
 	 * INTERNAL_SERVER_ERROR
 	 */
 	INTERNAL_SERVER_ERROR("KER-UIG-005", "Internal Server Error"),
-	CONFIG_SERVER_FETCH_FAILED("KER-UIG-006", "Error in retrieving from config server");
+	CONFIG_SERVER_FETCH_FAILED("KER-UIG-006", "Error in retrieving from config server"),
+	/**
+	 * BULK_UIN_INVALID_COUNT
+	 */
+	BULK_UIN_INVALID_COUNT("KER-UIG-007", "Bulk UIN Get Request count has to be 1 <= count < ${mosip.kernel.uin.min-unused-threshold}");
 
 	/**
 	 * The error code
