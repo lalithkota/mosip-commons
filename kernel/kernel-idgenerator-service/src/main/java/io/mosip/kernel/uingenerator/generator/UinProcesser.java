@@ -1,10 +1,11 @@
 package io.mosip.kernel.uingenerator.generator;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 
 import io.mosip.kernel.core.idgenerator.spi.UinGenerator;
 import io.mosip.kernel.uingenerator.constant.UinGeneratorConstant;
@@ -12,8 +13,7 @@ import io.mosip.kernel.uingenerator.repository.UinRepository;
 
 @Component
 public class UinProcesser {
-	// private static final Logger LOGGER =
-	// LoggerFactory.getLogger(UinProcesser.class);
+	private static final Logger LOGGER = LoggerFactory.getLogger(UinProcesser.class);
 
 	/**
 	 * Field for uinRepository
@@ -53,6 +53,7 @@ public class UinProcesser {
 	 */
 	public void generateUins() {
 		long noOfUnUsedUins = uinRepository.countByStatusAndIsDeletedFalse(UinGeneratorConstant.UNUSED);
+		LOGGER.info("Starting UIN Processor generateUins with uinsCount {}, noOfUnUsedUins {}", uinsCount, noOfUnUsedUins);
 		uinGeneratorImpl.generateId(uinsCount <= noOfUnUsedUins ? 0 : uinsCount - noOfUnUsedUins);
 	}
 

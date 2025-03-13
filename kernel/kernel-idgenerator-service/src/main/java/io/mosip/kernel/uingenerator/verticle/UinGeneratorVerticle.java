@@ -52,6 +52,7 @@ public class UinGeneratorVerticle extends AbstractVerticle {
 		vertx.eventBus().consumer(UinGeneratorConstant.UIN_GENERATOR_ADDRESS, receivedMessage -> {
 			if (receivedMessage.body().equals(UinGeneratorConstant.GENERATE_UIN) && uinProcesser.shouldGenerateUins()
 					&& !locked.get()) {
+				LOGGER.info("Starting UIN Generator Verticle Execution");
 				vertx.executeBlocking(future -> {
 					locked.set(true);
 					uinProcesser.generateUins();

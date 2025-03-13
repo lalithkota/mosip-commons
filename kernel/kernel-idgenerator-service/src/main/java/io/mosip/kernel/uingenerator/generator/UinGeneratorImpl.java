@@ -93,8 +93,6 @@ public class UinGeneratorImpl implements UinGenerator {
 		this.uinDefaultStatus = UinGeneratorConstant.UNUSED;
 	}
 
-	private static final RandomDataGenerator RANDOM_DATA_GENERATOR = new RandomDataGenerator();
-
 	/*
 	 * (non-Javadoc)
 	 * 
@@ -107,6 +105,7 @@ public class UinGeneratorImpl implements UinGenerator {
 		long upperBound = Long.parseLong(StringUtils.repeat(UinGeneratorConstant.NINE, generatedIdLength));
 		long lowerBound = Long.parseLong(StringUtils.repeat(UinGeneratorConstant.ZERO, generatedIdLength));
 		uinWriter.setSession();
+		LOGGER.info("Starting UIN Generator generateId, count {}", noOfUINToGenerate);
 		while (uinCount < noOfUINToGenerate) {
 			String generatedUIN = generateSingleId(generatedIdLength, lowerBound, upperBound);
 			if (uinCount%10000 == 0){
